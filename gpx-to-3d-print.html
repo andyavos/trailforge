@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trail Forge — GPX to 3D Print</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #111820;
+    --surface: #1a2332;
+    --surface2: #22303f;
+    --border: #2e404f;
+    --sand: #e8d5b0;
+    --sand-dim: #a89070;
+    --orange: #e87c3a;
+    --orange-dim: #a0572a;
+    --sage: #6b8f71;
+    --text: #d4c9b8;
+    --text-dim: #7a8a95;
+    --white: #f0ebe3;
+    --radius: 8px;
+    --font-body: 'Space Grotesk', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 38px,
+      rgba(110,143,113,0.04) 38px,
+      rgba(110,143,113,0.04) 40px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+  }
+
+  header {
+    padding: 36px 0 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+
+  .logo { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; color: var(--white); }
+  .logo span { color: var(--orange); }
+  .tagline { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 52px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--orange); background: rgba(232,124,58,0.05); }
+  .drop-icon { width: 52px; height: 52px; margin: 0 auto 16px; opacity: 0.5; }
+  .drop-zone h2 { font-size: 18px; font-weight: 600; color: var(--white); margin-bottom: 8px; }
+  .drop-zone p { font-size: 14px; color: var(--text-dim); margin-bottom: 20px; }
+
+  .btn-primary {
+    display: inline-block; background: var(--orange); color: #fff;
+    font-family: var(--font-body); font-weight: 600; font-size: 14px;
+    padding: 10px 24px; border-radius: 6px; border: none; cursor: pointer;
+    transition: background 0.15s; letter-spacing: 0.02em;
+  }
+  .btn-primary:hover { background: #cf6d32; }
+  .btn-primary:disabled { background: var(--border); cursor: not-allowed; opacity: 0.6; }
+
+  .btn-secondary {
+    display: inline-block; background: var(--surface2); color: var(--sand);
+    font-family: var(--font-body); font-weight: 600; font-size: 14px;
+    padding: 10px 24px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer;
+    transition: background 0.15s, border-color 0.15s; letter-spacing: 0.02em;
+  }
+  .btn-secondary:hover { background: var(--border); border-color: var(--sand-dim); }
+
+  input[type=file] { display: none; }
+
+  .stats-bar {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; margin: 28px 0;
+  }
+  .stat { background: var(--surface); padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+  .stat-label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+  .stat-value { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--white); }
+  .stat-unit { font-size: 12px; color: var(--sand-dim); font-weight: 400; }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex; gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-dim); font-family: var(--font-mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 10px 20px; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--sand); }
+  .tab-btn.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* 2D panels */
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .panels { grid-template-columns: 1fr; } .stats-bar { grid-template-columns: repeat(2, 1fr); } }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .panel-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
+  .panel-dot.orange { background: var(--orange); }
+  .panel-title { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+
+  canvas { display: block; width: 100%; background: var(--bg); }
+
+  /* 3D viewer */
+  .viewer-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .viewer-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .viewer-header-left { display: flex; align-items: center; gap: 8px; }
+  .viewer-hint { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); }
+
+  #threeCanvas {
+    display: block; width: 100% !important;
+    height: 460px; cursor: grab;
+    background: transparent;
+  }
+  #threeCanvas:active { cursor: grabbing; }
+
+  .viewer-controls {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .ctrl-label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+  .ctrl-btn {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font-mono); font-size: 11px; padding: 5px 12px; border-radius: 4px;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s;
+  }
+  .ctrl-btn:hover { background: var(--border); border-color: var(--sand-dim); }
+  .ctrl-btn.active { background: var(--orange-dim); border-color: var(--orange); color: var(--white); }
+
+  /* Settings */
+  .settings { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  .settings-title {
+    font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .settings-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .settings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 600px) { .settings-grid { grid-template-columns: 1fr 1fr; } }
+
+  .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+  .field input, .field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--white); font-family: var(--font-mono);
+    font-size: 13px; padding: 8px 10px; outline: none; transition: border-color 0.15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--orange); }
+  .field select option { background: var(--surface2); }
+
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+  .progress-wrap {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 20px; display: none;
+  }
+  .progress-label { font-size: 13px; color: var(--text-dim); margin-bottom: 10px; font-family: var(--font-mono); }
+  .progress-bar-bg { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-bar-fill {
+    height: 100%; background: linear-gradient(90deg, var(--sage), var(--orange));
+    width: 0%; border-radius: 2px; transition: width 0.3s;
+  }
+
+  .hidden { display: none !important; }
+
+  .file-info { font-family: var(--font-mono); font-size: 11px; color: var(--sage); margin-top: 10px; }
+
+  .elev-legend { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border); }
+  .elev-gradient-bar { flex: 1; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #4a7a8a, #6b8f71, #e8c857, #e87c3a, #c0392b); }
+  .elev-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">Trail<span>Forge</span></div>
+    <div class="tagline">GPX → 3D Print</div>
+  </header>
+
+  <div class="drop-zone" id="dropZone">
+    <svg class="drop-icon" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M26 4L26 34M26 4L18 12M26 4L34 12" stroke="#e8d5b0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 34V44C8 45.1 8.9 46 10 46H42C43.1 46 44 45.1 44 44V34" stroke="#e8d5b0" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <h2>Drop your GPX file here</h2>
+    <p>Strava, Garmin, Komoot, OSMAnd — any .gpx file works</p>
+    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">Choose File</button>
+    <input type="file" id="fileInput" accept=".gpx">
+    <div class="file-info" id="fileInfo"></div>
+  </div>
+
+  <div class="stats-bar hidden" id="statsBar">
+    <div class="stat"><span class="stat-label">Distance</span><span class="stat-value" id="statDist">—</span><span class="stat-unit">km</span></div>
+    <div class="stat"><span class="stat-label">Elevation gain</span><span class="stat-value" id="statGain">—</span><span class="stat-unit">m ascent</span></div>
+    <div class="stat"><span class="stat-label">Max elevation</span><span class="stat-value" id="statMaxElev">—</span><span class="stat-unit">m asl</span></div>
+    <div class="stat"><span class="stat-label">Track points</span><span class="stat-value" id="statPoints">—</span><span class="stat-unit">pts</span></div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar hidden" id="tabBar">
+    <button class="tab-btn active" onclick="switchTab('2d', this)">2D Preview</button>
+    <button class="tab-btn" onclick="switchTab('3d', this)">3D Model</button>
+  </div>
+
+  <!-- 2D tab -->
+  <div class="tab-pane active hidden" id="tab2d">
+    <div class="panels">
+      <div class="panel">
+        <div class="panel-header"><div class="panel-dot"></div><span class="panel-title">Route Map</span></div>
+        <canvas id="mapCanvas" width="480" height="320"></canvas>
+        <div class="elev-legend">
+          <span class="elev-label">Low</span>
+          <div class="elev-gradient-bar"></div>
+          <span class="elev-label">High</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div class="panel-dot orange"></div><span class="panel-title">Elevation Profile</span></div>
+        <canvas id="elevCanvas" width="480" height="320"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3D tab -->
+  <div class="tab-pane hidden" id="tab3d">
+    <div class="viewer-panel">
+      <div class="viewer-header">
+        <div class="viewer-header-left">
+          <div class="panel-dot" style="background: var(--orange)"></div>
+          <span class="panel-title">3D Route Model</span>
+        </div>
+        <span class="viewer-hint">drag to rotate · scroll to zoom · right-drag to pan</span>
+      </div>
+      <canvas id="threeCanvas"></canvas>
+      <div class="viewer-controls">
+        <span class="ctrl-label">View:</span>
+        <button class="ctrl-btn" onclick="setCameraView('top')">Top</button>
+        <button class="ctrl-btn" onclick="setCameraView('front')">Front</button>
+        <button class="ctrl-btn" onclick="setCameraView('iso')">Isometric</button>
+        <button class="ctrl-btn" onclick="setCameraView('follow')">Along Route</button>
+        <span style="flex:1"></span>
+        <span class="ctrl-label">Style:</span>
+        <button class="ctrl-btn active" id="btnSolid" onclick="setStyle('solid')">Solid</button>
+        <button class="ctrl-btn" id="btnWire" onclick="setStyle('wire')">Wireframe</button>
+        <button class="ctrl-btn" onclick="resetCamera()">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings hidden" id="settingsPanel">
+    <div class="settings-title">Print Settings</div>
+    <div class="settings-grid">
+      <div class="field"><label>Base width (mm)</label><input type="number" id="printWidth" value="100" min="20" max="300"></div>
+      <div class="field"><label>Base depth (mm)</label><input type="number" id="printDepth" value="100" min="20" max="300"></div>
+      <div class="field"><label>Base thickness (mm)</label><input type="number" id="baseThick" value="3" min="1" max="20"></div>
+      <div class="field"><label>Route ridge height (mm)</label><input type="number" id="ridgeHeight" value="8" min="1" max="50"></div>
+      <div class="field"><label>Route ridge width (mm)</label><input type="number" id="ridgeWidth" value="1.5" min="0.5" max="10" step="0.5"></div>
+      <div class="field"><label>Elevation exaggeration</label><input type="number" id="elevExag" value="2" min="1" max="10" step="0.5"></div>
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-label" id="progressLabel">Generating STL…</div>
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+  </div>
+
+  <div class="actions hidden" id="actionsPanel">
+    <button class="btn-primary" id="generateBtn" onclick="generateSTL()">Generate STL for 3D Printing</button>
+    <button class="btn-secondary" onclick="savePNG()">Save Preview Image</button>
+    <button class="btn-secondary" onclick="resetAll()">Load New File</button>
+  </div>
+</div>
+
+<!-- Three.js from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────────
+let trackPoints = [];
+let parsedName = '';
+
+// ── Three.js state ────────────────────────────────────────────────────
+let threeScene, threeCamera, threeRenderer, threeGroup;
+let isDragging = false, isRightDrag = false;
+let lastMouse = { x: 0, y: 0 };
+let spherical = { theta: 0.4, phi: 1.1, radius: 180 };
+let panOffset = { x: 0, y: 0 };
+let routeMesh = null, baseMesh = null, routeWire = null, baseWire = null;
+let currentStyle = 'solid';
+let threeInited = false;
+
+// ── Tabs ──────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab' + name).classList.add('active');
+  if (name === '3d' && trackPoints.length && !threeInited) {
+    initThree();
+    build3DRoute();
+  }
+}
+
+// ── File handling ─────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+  if (!file.name.toLowerCase().endsWith('.gpx')) { alert('Please choose a .gpx file'); return; }
+  document.getElementById('fileInfo').textContent = `📍 ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  const reader = new FileReader();
+  reader.onload = e => parseGPX(e.target.result);
+  reader.readAsText(file);
+}
+
+// ── GPX Parsing ───────────────────────────────────────────────────────
+function parseGPX(xml) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'application/xml');
+  const nameEl = doc.querySelector('name');
+  parsedName = nameEl ? nameEl.textContent : 'Route';
+  let pts = [...doc.querySelectorAll('trkpt')];
+  if (!pts.length) pts = [...doc.querySelectorAll('rtept')];
+  if (!pts.length) pts = [...doc.querySelectorAll('wpt')];
+  if (!pts.length) { alert('No track points found in GPX file.'); return; }
+  const raw = pts.map(p => ({
+    lat: parseFloat(p.getAttribute('lat')),
+    lon: parseFloat(p.getAttribute('lon')),
+    ele: parseFloat(p.querySelector('ele')?.textContent || '0')
+  }));
+  let cumDist = 0;
+  trackPoints = raw.map((p, i) => {
+    if (i > 0) cumDist += haversine(raw[i-1], p);
+    return { ...p, dist: cumDist };
+  });
+  showStats();
+  drawMap();
+  drawElevation();
+  showUI();
+  threeInited = false;
+}
+
+function haversine(a, b) {
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────
+function showStats() {
+  const totalDist = trackPoints[trackPoints.length-1].dist / 1000;
+  let gain = 0;
+  for (let i = 1; i < trackPoints.length; i++) { const d = trackPoints[i].ele - trackPoints[i-1].ele; if (d > 0) gain += d; }
+  const maxElev = Math.max(...trackPoints.map(p => p.ele));
+  document.getElementById('statDist').textContent = totalDist.toFixed(2);
+  document.getElementById('statGain').textContent = Math.round(gain);
+  document.getElementById('statMaxElev').textContent = Math.round(maxElev);
+  document.getElementById('statPoints').textContent = trackPoints.length.toLocaleString();
+  document.getElementById('statsBar').classList.remove('hidden');
+}
+
+// ── 2D Map ────────────────────────────────────────────────────────────
+function drawMap() {
+  const canvas = document.getElementById('mapCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d1520';
+  ctx.fillRect(0, 0, W, H);
+  const lats = trackPoints.map(p => p.lat), lons = trackPoints.map(p => p.lon), eles = trackPoints.map(p => p.ele);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+  const eleRange = maxEle - minEle || 1;
+  const PAD = 32;
+  const scaleX = (W - PAD*2) / (maxLon - minLon || 1e-9);
+  const scaleY = (H - PAD*2) / (maxLat - minLat || 1e-9);
+  const scale = Math.min(scaleX, scaleY);
+  const offsetX = PAD + ((W - PAD*2) - (maxLon - minLon) * scale) / 2;
+  const offsetY = PAD + ((H - PAD*2) - (maxLat - minLat) * scale) / 2;
+  const toX = lon => offsetX + (lon - minLon) * scale;
+  const toY = lat => H - offsetY - (lat - minLat) * scale;
+  function elevColor(ele) {
+    const t = (ele - minEle) / eleRange;
+    const stops = [[74,122,138],[107,143,113],[232,200,87],[232,124,58],[192,57,43]];
+    const idx = t * (stops.length - 1);
+    const i = Math.min(Math.floor(idx), stops.length - 2);
+    const f = idx - i;
+    const c = stops[i].map((v, j) => Math.round(v + f * (stops[i+1][j] - v)));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
+  }
+  ctx.save(); ctx.shadowColor = 'rgba(232,124,58,0.4)'; ctx.shadowBlur = 12;
+  ctx.beginPath();
+  trackPoints.forEach((p, i) => { const x = toX(p.lon), y = toY(p.lat); i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y); });
+  ctx.strokeStyle = 'rgba(232,124,58,0.15)'; ctx.lineWidth = 6; ctx.stroke(); ctx.restore();
+  for (let i = 1; i < trackPoints.length; i++) {
+    const a = trackPoints[i-1], b = trackPoints[i];
+    ctx.beginPath(); ctx.moveTo(toX(a.lon), toY(a.lat)); ctx.lineTo(toX(b.lon), toY(b.lat));
+    ctx.strokeStyle = elevColor((a.ele+b.ele)/2); ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  }
+  const s = trackPoints[0];
+  ctx.beginPath(); ctx.arc(toX(s.lon), toY(s.lat), 6, 0, Math.PI*2);
+  ctx.fillStyle = '#27ae60'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+  const e = trackPoints[trackPoints.length-1];
+  ctx.beginPath(); ctx.arc(toX(e.lon), toY(e.lat), 6, 0, Math.PI*2);
+  ctx.fillStyle = '#e74c3c'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.font = '11px "Space Mono", monospace'; ctx.fillStyle = 'rgba(240,235,227,0.7)';
+  ctx.fillText('START', toX(s.lon) + 9, toY(s.lat) + 4);
+  ctx.fillText('END', toX(e.lon) + 9, toY(e.lat) + 4);
+  ctx.font = 'bold 12px "Space Mono", monospace'; ctx.fillStyle = 'rgba(232,213,176,0.6)';
+  ctx.fillText(`${(trackPoints[trackPoints.length-1].dist/1000).toFixed(2)} km`, PAD, H - 12);
+}
+
+// ── Elevation Canvas ──────────────────────────────────────────────────
+function drawElevation() {
+  const canvas = document.getElementById('elevCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#0d1520'; ctx.fillRect(0, 0, W, H);
+  const PAD = { top: 20, bottom: 44, left: 52, right: 20 };
+  const pw = W - PAD.left - PAD.right, ph = H - PAD.top - PAD.bottom;
+  const eles = trackPoints.map(p => p.ele);
+  const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+  const eleRange = maxEle - minEle || 1;
+  const totalDist = trackPoints[trackPoints.length-1].dist;
+  const toX = pt => PAD.left + (pt.dist / totalDist) * pw;
+  const toY = ele => PAD.top + ph - ((ele - minEle) / eleRange) * ph;
+  ctx.strokeStyle = 'rgba(46,64,79,0.7)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + (i / 4) * ph;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+    ctx.font = '9px "Space Mono"'; ctx.fillStyle = '#7a8a95'; ctx.textAlign = 'right';
+    ctx.fillText(`${Math.round(maxEle - (i/4) * eleRange)}m`, PAD.left - 6, y + 3);
+  }
+  const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ph);
+  grad.addColorStop(0, 'rgba(232,124,58,0.5)'); grad.addColorStop(0.5, 'rgba(107,143,113,0.25)'); grad.addColorStop(1, 'rgba(74,122,138,0.05)');
+  ctx.beginPath(); ctx.moveTo(toX(trackPoints[0]), PAD.top + ph);
+  trackPoints.forEach(p => ctx.lineTo(toX(p), toY(p.ele)));
+  ctx.lineTo(toX(trackPoints[trackPoints.length-1]), PAD.top + ph); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath();
+  trackPoints.forEach((p, i) => i === 0 ? ctx.moveTo(toX(p), toY(p.ele)) : ctx.lineTo(toX(p), toY(p.ele)));
+  ctx.strokeStyle = '#e87c3a'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  const distKm = totalDist / 1000;
+  const tickInterval = distKm > 20 ? 5 : distKm > 5 ? 2 : 1;
+  ctx.textAlign = 'center'; ctx.font = '9px "Space Mono"'; ctx.fillStyle = '#7a8a95';
+  for (let km = 0; km <= distKm; km += tickInterval) {
+    const x = PAD.left + (km / distKm) * pw;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top + ph); ctx.lineTo(x, PAD.top + ph + 5); ctx.strokeStyle = '#2e404f'; ctx.stroke();
+    ctx.fillText(`${km}km`, x, H - 6);
+  }
+  const maxPt = trackPoints.reduce((a, b) => a.ele > b.ele ? a : b);
+  const mx = toX(maxPt), my = toY(maxPt.ele);
+  ctx.beginPath(); ctx.arc(mx, my, 4, 0, Math.PI*2); ctx.fillStyle = '#e87c3a'; ctx.fill();
+  ctx.font = 'bold 10px "Space Mono"'; ctx.fillStyle = '#e8d5b0';
+  ctx.textAlign = mx > W - 90 ? 'right' : 'left';
+  ctx.fillText(`▲ ${Math.round(maxPt.ele)}m`, mx + (mx > W - 90 ? -8 : 8), my - 6);
+}
+
+function showUI() {
+  document.getElementById('tabBar').classList.remove('hidden');
+  document.getElementById('tab2d').classList.remove('hidden');
+  document.getElementById('tab2d').classList.add('active');
+  document.getElementById('tab3d').classList.remove('hidden');
+  document.getElementById('settingsPanel').classList.remove('hidden');
+  document.getElementById('actionsPanel').classList.remove('hidden');
+}
+
+function resetAll() {
+  trackPoints = [];
+  threeInited = false;
+  if (threeRenderer) { threeRenderer.dispose(); threeRenderer = null; }
+  ['statsBar','tabBar','tab2d','tab3d','settingsPanel','actionsPanel','progressWrap'].forEach(id => {
+    document.getElementById(id).classList.add('hidden');
+    document.getElementById(id).classList.remove('active');
+  });
+  document.getElementById('fileInfo').textContent = '';
+  fileInput.value = '';
+}
+
+// ── Three.js 3D Viewer ────────────────────────────────────────────────
+function initThree() {
+  const canvas = document.getElementById('threeCanvas');
+  threeScene = new THREE.Scene();
+  threeScene.background = new THREE.Color(0x0d1520);
+
+  threeCamera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 10000);
+
+  threeRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  threeRenderer.setPixelRatio(window.devicePixelRatio);
+  threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0x8899aa, 0.6);
+  threeScene.add(ambient);
+  const dirLight = new THREE.DirectionalLight(0xfff5e0, 1.2);
+  dirLight.position.set(80, 120, 80);
+  threeScene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0x4a7a8a, 0.4);
+  fillLight.position.set(-80, 40, -60);
+  threeScene.add(fillLight);
+
+  // Grid
+  const gridHelper = new THREE.GridHelper(300, 30, 0x1e3040, 0x1e3040);
+  gridHelper.position.y = -0.5;
+  threeScene.add(gridHelper);
+
+  threeGroup = new THREE.Group();
+  threeScene.add(threeGroup);
+
+  // Mouse orbit controls (manual)
+  canvas.addEventListener('mousedown', onMouseDown);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseup', () => isDragging = false);
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('wheel', onWheel, { passive: true });
+  canvas.addEventListener('touchstart', onTouchStart, { passive: true });
+  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+  canvas.addEventListener('touchend', () => isDragging = false);
+
+  window.addEventListener('resize', onResize);
+  threeInited = true;
+  animate();
+}
+
+let touchStartDist = 0, touchStartRadius = 0;
+function onTouchStart(e) {
+  if (e.touches.length === 1) {
+    isDragging = true; isRightDrag = false;
+    lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    touchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    touchStartRadius = spherical.radius;
+  }
+}
+function onTouchMove(e) {
+  e.preventDefault();
+  if (e.touches.length === 1 && isDragging) {
+    const dx = e.touches[0].clientX - lastMouse.x, dy = e.touches[0].clientY - lastMouse.y;
+    spherical.theta -= dx * 0.005; spherical.phi -= dy * 0.005;
+    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+    lastMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    updateCamera();
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    spherical.radius = Math.max(20, Math.min(500, touchStartRadius * (touchStartDist / dist)));
+    updateCamera();
+  }
+}
+
+function onMouseDown(e) {
+  isDragging = true;
+  isRightDrag = e.button === 2;
+  lastMouse = { x: e.clientX, y: e.clientY };
+}
+function onMouseMove(e) {
+  if (!isDragging) return;
+  const dx = e.clientX - lastMouse.x, dy = e.clientY - lastMouse.y;
+  if (isRightDrag) {
+    panOffset.x -= dx * 0.15; panOffset.y += dy * 0.15;
+  } else {
+    spherical.theta -= dx * 0.005; spherical.phi -= dy * 0.005;
+    spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+  }
+  lastMouse = { x: e.clientX, y: e.clientY };
+  updateCamera();
+}
+function onWheel(e) {
+  spherical.radius = Math.max(20, Math.min(500, spherical.radius + e.deltaY * 0.3));
+  updateCamera();
+}
+function onResize() {
+  const canvas = document.getElementById('threeCanvas');
+  if (!threeRenderer) return;
+  threeCamera.aspect = canvas.clientWidth / canvas.clientHeight;
+  threeCamera.updateProjectionMatrix();
+  threeRenderer.setSize(canvas.clientWidth, canvas.clientHeight);
+}
+
+function updateCamera() {
+  const { theta, phi, radius } = spherical;
+  threeCamera.position.set(
+    panOffset.x + radius * Math.sin(phi) * Math.sin(theta),
+    panOffset.y + radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.cos(theta)
+  );
+  threeCamera.lookAt(panOffset.x, panOffset.y, 0);
+}
+
+function resetCamera() {
+  spherical = { theta: 0.4, phi: 1.1, radius: 180 };
+  panOffset = { x: 0, y: 0 };
+  updateCamera();
+}
+
+function setCameraView(view) {
+  if (view === 'top') { spherical.theta = 0; spherical.phi = 0.01; spherical.radius = 180; }
+  else if (view === 'front') { spherical.theta = 0; spherical.phi = Math.PI/2; spherical.radius = 180; }
+  else if (view === 'iso') { spherical.theta = 0.785; spherical.phi = 0.9; spherical.radius = 180; }
+  else if (view === 'follow') {
+    // Camera along the direction of first segment
+    if (trackPoints.length > 1) {
+      const dx = trackPoints[10 < trackPoints.length ? 10 : 1].lon - trackPoints[0].lon;
+      const dz = trackPoints[10 < trackPoints.length ? 10 : 1].lat - trackPoints[0].lat;
+      spherical.theta = Math.atan2(dx, dz);
+      spherical.phi = 1.2; spherical.radius = 160;
+    }
+  }
+  panOffset = { x: 0, y: 0 };
+  updateCamera();
+}
+
+function setStyle(style) {
+  currentStyle = style;
+  document.getElementById('btnSolid').classList.toggle('active', style === 'solid');
+  document.getElementById('btnWire').classList.toggle('active', style === 'wire');
+  if (!threeGroup) return;
+  threeGroup.traverse(child => {
+    if (child.isMesh) {
+      child.visible = style === 'solid' ? !child.userData.isWire : child.userData.isWire;
+    }
+  });
+}
+
+function animate() {
+  if (!threeRenderer) return;
+  requestAnimationFrame(animate);
+  threeRenderer.render(threeScene, threeCamera);
+}
+
+// ── Build 3D geometry ─────────────────────────────────────────────────
+function build3DRoute() {
+  if (!threeInited || !trackPoints.length) return;
+
+  // Clear old meshes
+  while (threeGroup.children.length) threeGroup.remove(threeGroup.children[0]);
+
+  const printW  = parseFloat(document.getElementById('printWidth').value)  || 100;
+  const printD  = parseFloat(document.getElementById('printDepth').value)  || 100;
+  const baseT   = parseFloat(document.getElementById('baseThick').value)   || 3;
+  const ridgeH  = parseFloat(document.getElementById('ridgeHeight').value) || 8;
+  const ridgeW  = parseFloat(document.getElementById('ridgeWidth').value)  || 1.5;
+  const elevEx  = parseFloat(document.getElementById('elevExag').value)    || 2;
+
+  const lats = trackPoints.map(p => p.lat);
+  const lons = trackPoints.map(p => p.lon);
+  const eles = trackPoints.map(p => p.ele);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+  const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+  const eleRange = maxEle - minEle || 1;
+
+  const latSpan = maxLat - minLat || 1e-9;
+  const lonSpan = maxLon - minLon || 1e-9;
+  const latMid = (minLat + maxLat) / 2;
+  const lonScaleFactor = Math.cos(latMid * Math.PI / 180);
+  const aspect = (lonSpan * lonScaleFactor) / latSpan;
+
+  let scaleX, scaleY;
+  if (aspect >= 1) { scaleX = printW / lonSpan; scaleY = (printW / aspect) / latSpan; }
+  else             { scaleY = printD / latSpan; scaleX = (printD * aspect) / lonSpan; }
+
+  const usedW = lonSpan * scaleX, usedD = latSpan * scaleY;
+  const offX = (printW - usedW) / 2, offY = (printD - usedD) / 2;
+
+  const toX3 = lon => offX + (lon - minLon) * scaleX - printW/2;
+  const toZ3 = lat => offY + (lat - minLat) * scaleY - printD/2;
+  const toY3 = ele => baseT + ((ele - minEle) / eleRange) * ridgeH * elevEx;
+
+  // ── Base plate ────────────────────────────────────────────────────
+  const baseGeo = new THREE.BoxGeometry(printW, baseT, printD);
+  baseGeo.translate(0, baseT/2, 0);
+
+  const baseMat = new THREE.MeshLambertMaterial({ color: 0x1a2e3c });
+  const baseWireMat = new THREE.MeshBasicMaterial({ color: 0x2e4a5a, wireframe: true });
+
+  baseMesh = new THREE.Mesh(baseGeo, baseMat);
+  baseMesh.userData.isWire = false;
+  threeGroup.add(baseMesh);
+
+  const baseWireMesh = new THREE.Mesh(baseGeo, baseWireMat);
+  baseWireMesh.userData.isWire = true;
+  baseWireMesh.visible = false;
+  threeGroup.add(baseWireMesh);
+
+  // ── Route as extruded tube-like ribbon ────────────────────────────
+  // Downsample
+  const maxPts = 1500;
+  const step = Math.max(1, Math.floor(trackPoints.length / maxPts));
+  const sampled = [];
+  for (let i = 0; i < trackPoints.length; i += step) sampled.push(trackPoints[i]);
+  if (sampled[sampled.length-1] !== trackPoints[trackPoints.length-1]) sampled.push(trackPoints[trackPoints.length-1]);
+
+  // Build elevation-colored tube using BufferGeometry segments
+  const hw = ridgeW / 2;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+
+  function elevColor3(ele) {
+    const t = (ele - minEle) / eleRange;
+    const stops = [
+      [0.29, 0.48, 0.54],
+      [0.42, 0.56, 0.44],
+      [0.91, 0.78, 0.34],
+      [0.91, 0.49, 0.23],
+      [0.75, 0.22, 0.17]
+    ];
+    const idx = t * (stops.length - 1);
+    const i = Math.min(Math.floor(idx), stops.length - 2);
+    const f = idx - i;
+    return stops[i].map((v, j) => v + f * (stops[i+1][j] - v));
+  }
+
+  let vi = 0;
+  for (let i = 0; i < sampled.length - 1; i++) {
+    const a = sampled[i], b = sampled[i+1];
+    const ax = toX3(a.lon), az = toZ3(a.lat), ay_base = baseT, ay_top = toY3(a.ele);
+    const bx = toX3(b.lon), bz = toZ3(b.lat), by_base = baseT, by_top = toY3(b.ele);
+
+    const dxs = bx - ax, dzs = bz - az;
+    const dlen = Math.sqrt(dxs*dxs + dzs*dzs) || 1;
+    const nx = -dzs/dlen * hw, nz = dxs/dlen * hw;
+
+    const ca = elevColor3(a.ele);
+    const cb = elevColor3(b.ele);
+
+    // 8 verts per segment: 4 bottom, 4 top (a-left, a-right, b-right, b-left)
+    const verts = [
+      [ax-nx, ay_base, az-nz], [ax+nx, ay_base, az+nz],  // a bottom
+      [ax-nx, ay_top,  az-nz], [ax+nx, ay_top,  az+nz],  // a top
+      [bx-nx, by_base, bz-nz], [bx+nx, by_base, bz+nz],  // b bottom
+      [bx-nx, by_top,  bz-nz], [bx+nx, by_top,  bz+nz],  // b top
+    ];
+    const vcolors = [ca, ca, ca, ca, cb, cb, cb, cb];
+
+    for (let k = 0; k < 8; k++) {
+      positions.push(...verts[k]);
+      colors.push(...vcolors[k]);
+    }
+
+    const v = vi;
+    // Top face
+    indices.push(v+2, v+3, v+7, v+2, v+7, v+6);
+    // Front side (left)
+    indices.push(v+0, v+2, v+6, v+0, v+6, v+4);
+    // Back side (right)
+    indices.push(v+3, v+1, v+5, v+3, v+5, v+7);
+    // Bottom
+    indices.push(v+1, v+0, v+4, v+1, v+4, v+5);
+    // Caps
+    if (i === 0) indices.push(v+0, v+1, v+3, v+0, v+3, v+2);
+    if (i === sampled.length - 2) indices.push(v+4, v+6, v+7, v+4, v+7, v+5);
+
+    vi += 8;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const wireMat = new THREE.MeshBasicMaterial({ color: 0xe87c3a, wireframe: true, opacity: 0.6, transparent: true });
+
+  routeMesh = new THREE.Mesh(geo, mat);
+  routeMesh.userData.isWire = false;
+  threeGroup.add(routeMesh);
+
+  const routeWireMesh = new THREE.Mesh(geo.clone(), wireMat);
+  routeWireMesh.userData.isWire = true;
+  routeWireMesh.visible = false;
+  threeGroup.add(routeWireMesh);
+
+  // Start/end markers
+  const startGeo = new THREE.CylinderGeometry(1.5, 1.5, 8, 8);
+  const startMat = new THREE.MeshLambertMaterial({ color: 0x27ae60 });
+  const startMesh = new THREE.Mesh(startGeo, startMat);
+  const s = sampled[0];
+  startMesh.position.set(toX3(s.lon), baseT + 4, toZ3(s.lat));
+  startMesh.userData.isWire = false;
+  threeGroup.add(startMesh);
+
+  const endGeo = new THREE.CylinderGeometry(1.5, 1.5, 8, 8);
+  const endMat = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
+  const endMesh = new THREE.Mesh(endGeo, endMat);
+  const e = sampled[sampled.length-1];
+  endMesh.position.set(toX3(e.lon), baseT + 4, toZ3(e.lat));
+  endMesh.userData.isWire = false;
+  threeGroup.add(endMesh);
+
+  // Centre group
+  threeGroup.position.set(0, -baseT, 0);
+
+  setStyle(currentStyle);
+  setCameraView('iso');
+}
+
+// Listen for settings changes to rebuild 3D if tab is active
+['printWidth','printDepth','baseThick','ridgeHeight','ridgeWidth','elevExag'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (threeInited && document.getElementById('tab3d').classList.contains('active')) build3DRoute();
+  });
+});
+
+// ── STL Generation ─────────────────────────────────────────────────────
+function generateSTL() {
+  const printW  = parseFloat(document.getElementById('printWidth').value) || 100;
+  const printD  = parseFloat(document.getElementById('printDepth').value) || 100;
+  const baseT   = parseFloat(document.getElementById('baseThick').value) || 3;
+  const ridgeH  = parseFloat(document.getElementById('ridgeHeight').value) || 8;
+  const ridgeW  = parseFloat(document.getElementById('ridgeWidth').value) || 1.5;
+  const elevEx  = parseFloat(document.getElementById('elevExag').value) || 2;
+
+  const pw = document.getElementById('progressWrap');
+  const pf = document.getElementById('progressFill');
+  const pl = document.getElementById('progressLabel');
+  pw.style.display = 'block'; pf.style.width = '0%'; pl.textContent = 'Computing route geometry…';
+
+  setTimeout(() => {
+    const lats = trackPoints.map(p => p.lat), lons = trackPoints.map(p => p.lon), eles = trackPoints.map(p => p.ele);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+    const minEle = Math.min(...eles), maxEle = Math.max(...eles);
+    const eleRange = maxEle - minEle || 1;
+    const latSpan = maxLat - minLat || 1e-9, lonSpan = maxLon - minLon || 1e-9;
+    const latMid = (minLat + maxLat) / 2;
+    const lonScaleFactor = Math.cos(latMid * Math.PI / 180);
+    const aspect = (lonSpan * lonScaleFactor) / latSpan;
+    let scaleX, scaleY;
+    if (aspect >= 1) { scaleX = printW / lonSpan; scaleY = (printW / aspect) / latSpan; }
+    else             { scaleY = printD / latSpan; scaleX = (printD * aspect) / lonSpan; }
+    const usedW = lonSpan * scaleX, usedD = latSpan * scaleY;
+    const offX = (printW - usedW) / 2, offY = (printD - usedD) / 2;
+    const toX3 = lon => offX + (lon - minLon) * scaleX;
+    const toY3 = lat => offY + (lat - minLat) * scaleY;
+    const toZ3 = ele => baseT + ((ele - minEle) / eleRange) * ridgeH * elevEx;
+
+    pf.style.width = '20%'; pl.textContent = 'Building triangles…';
+    const triangles = [];
+    function addTri(a, b, c) {
+      const ab = [b[0]-a[0],b[1]-a[1],b[2]-a[2]], ac = [c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+      const n = [ab[1]*ac[2]-ab[2]*ac[1], ab[2]*ac[0]-ab[0]*ac[2], ab[0]*ac[1]-ab[1]*ac[0]];
+      const len = Math.sqrt(n[0]**2+n[1]**2+n[2]**2) || 1;
+      triangles.push({ n: n.map(v=>v/len), verts: [a,b,c] });
+    }
+    function addQuad(a,b,c,d) { addTri(a,b,c); addTri(a,c,d); }
+    const BL=[0,0,0],BR=[printW,0,0],TL=[0,printD,0],TR=[printW,printD,0];
+    const BLt=[0,0,baseT],BRt=[printW,0,baseT],TLt=[0,printD,baseT],TRt=[printW,printD,baseT];
+    addTri(BL,TR,BR); addTri(BL,TL,TR);
+    addQuad(BLt,BRt,TRt,TLt); addQuad(BL,BR,BRt,BLt); addQuad(TR,TL,TLt,TRt);
+    addQuad(TL,BL,BLt,TLt); addQuad(BR,TR,TRt,BRt);
+    pf.style.width = '45%';
+    const maxPts = 2000, step = Math.max(1, Math.floor(trackPoints.length / maxPts));
+    const sampled = [];
+    for (let i = 0; i < trackPoints.length; i += step) sampled.push(trackPoints[i]);
+    if (sampled[sampled.length-1] !== trackPoints[trackPoints.length-1]) sampled.push(trackPoints[trackPoints.length-1]);
+    const hw = ridgeW / 2;
+    for (let i = 0; i < sampled.length - 1; i++) {
+      const a = sampled[i], b = sampled[i+1];
+      const ax = toX3(a.lon), ay = toY3(a.lat), az_base = baseT, az_top = toZ3(a.ele);
+      const bx = toX3(b.lon), by = toY3(b.lat), bz_base = baseT, bz_top = toZ3(b.ele);
+      const dx = bx-ax, dy = by-ay, dlen = Math.sqrt(dx*dx+dy*dy) || 1;
+      const nx = -dy/dlen * hw, ny = dx/dlen * hw;
+      const b0=[ax-nx,ay-ny,az_base], b1=[ax+nx,ay+ny,az_base], b2=[bx+nx,by+ny,bz_base], b3=[bx-nx,by-ny,bz_base];
+      const t0=[ax-nx,ay-ny,az_top],  t1=[ax+nx,ay+ny,az_top],  t2=[bx+nx,by+ny,bz_top],  t3=[bx-nx,by-ny,bz_top];
+      addQuad(t0,t3,t2,t1); addQuad(b0,b3,t3,t0); addQuad(b1,t1,t2,b2);
+      addQuad(b1,b0,b3,b2);
+      if (i === 0) addQuad(b0,t0,t1,b1);
+      if (i === sampled.length - 2) addQuad(b3,b2,t2,t3);
+    }
+    pf.style.width = '75%'; pl.textContent = 'Writing STL file…';
+    setTimeout(() => {
+      let stl = `solid ${parsedName.replace(/\s+/g,'_')}\n`;
+      for (const tri of triangles) {
+        const n = tri.n, v = tri.verts;
+        stl += `  facet normal ${n[0].toFixed(6)} ${n[1].toFixed(6)} ${n[2].toFixed(6)}\n    outer loop\n`;
+        for (const vt of v) stl += `      vertex ${vt[0].toFixed(4)} ${vt[1].toFixed(4)} ${vt[2].toFixed(4)}\n`;
+        stl += `    endloop\n  endfacet\n`;
+      }
+      stl += `endsolid ${parsedName.replace(/\s+/g,'_')}\n`;
+      pf.style.width = '100%'; pl.textContent = `Done — ${triangles.length.toLocaleString()} triangles`;
+      const blob = new Blob([stl], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `${parsedName.replace(/\s+/g,'_') || 'route'}.stl`; a.click();
+      URL.revokeObjectURL(url);
+      setTimeout(() => { pw.style.display = 'none'; }, 3000);
+    }, 50);
+  }, 50);
+}
+
+// ── Save Preview PNG ──────────────────────────────────────────────────
+function savePNG() {
+  const mapC = document.getElementById('mapCanvas'), elevC = document.getElementById('elevCanvas');
+  const W = mapC.width * 2 + 16, H = mapC.height + 100;
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#111820'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#e87c3a'; ctx.font = 'bold 18px sans-serif'; ctx.fillText('TrailForge', 12, 28);
+  ctx.fillStyle = '#d4c9b8'; ctx.font = '13px monospace'; ctx.fillText(parsedName, 130, 28);
+  const dist = (trackPoints[trackPoints.length-1].dist/1000).toFixed(2);
+  let gain = 0; for (let i=1;i<trackPoints.length;i++){const d=trackPoints[i].ele-trackPoints[i-1].ele;if(d>0)gain+=d;}
+  ctx.fillStyle = '#7a8a95'; ctx.font = '11px monospace';
+  ctx.fillText(`${dist} km  |  ↑${Math.round(gain)}m  |  max ${Math.round(Math.max(...trackPoints.map(p=>p.ele)))}m`, 12, 52);
+  ctx.drawImage(mapC, 0, 68); ctx.drawImage(elevC, mapC.width + 16, 68);
+  out.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `${parsedName.replace(/\s+/g,'_') || 'route'}_preview.png`; a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+</script>
+</body>
+</html>
