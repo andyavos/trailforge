@@ -1,6 +1,6 @@
 # TrailForge — GPX to 3D Print
 
-A single-file web app that turns a GPX track from Strava, Garmin, Komoot, or any GPS device into a 3D-printable STL file and an interactive 3D preview. Everything runs in the browser — no server, no upload, no account.
+A single-file [web app](https://andyavos.github.io/trailforge/) that turns a GPX track from Strava, Garmin, Komoot, or any GPS device into a 3D-printable STL file and an interactive 3D preview. Everything runs in the browser — no server, no upload, no account.
 
 <img width="2006" height="3094" alt="gpx-to-3d-print" src="https://github.com/user-attachments/assets/854e88a8-f7ac-4ca2-b6c9-74037548dcfe" />
 
